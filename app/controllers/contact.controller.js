@@ -1,85 +1,122 @@
-// exports.create = (req, res) => {
-// res.send({ message: "create handler" });
-// };
-// exports.findAll = (req, res) => {
-// res.send({ message: "findAll handler" });
-// };
-// exports.findOne = (req, res) => {
-// res.send({ message: "findOne handler" });
-// };
-// exports.update = (req, res) => {
-// res.send({ message: "update handler" });
-// };
-// exports.delete = (req, res) => {
-// res.send({ message: "delete handler" });
-// };
-// exports.deleteAll = (req, res) => {
-// res.send({ message: "deleteAll handler" });
-// };
-// exports.findAllFavorite = (req, res) => {
-// res.send({ message: "findAllFavorite handler" });
-// };
-// Dữ liệu mẫu
-let contacts = [
-    { id: 1, name: "LÊ HỒNG NHI", email: "nhi@example.com", phone: "0123456789", favorite: true },
-    { id: 2, name: "LÊ VĂN ANH", email: "anh@example.com", phone: "0098765489", favorite: false },
-    { id: 3, name: "LÊ VĂN CƯỜNG", email: "cuong@example.com", phone: "03456709091", favorite: true }
-];
+
+const ContactService = require("../services/contact.service");
+const MongoDB = require("../utils/mongodb.util");
+const ApiError = require("../api-error");
+const { ObjectId } = require("mongodb");
 
 // Tạo mới một liên hệ
-exports.create = (req, res) => {
-    const newContact = {
-        id: contacts.length + 1,
-        name: req.body.name,
-        email: req.body.email,
-        phone: req.body.phone,
-        favorite: req.body.favorite || false
-    };
-    contacts.push(newContact);
-    res.send(newContact);
-};
-
-// Lấy tất cả liên hệ
-exports.findAll = (req, res) => {
-    res.send(contacts);
-};
-
-// Lấy một liên hệ theo ID
-exports.findOne = (req, res) => {
-    const id = parseInt(req.params.id);
-    const contact = contacts.find(c => c.id === id);
-    if (!contact) {
-        return res.status(404).send({ message: "Không tìm thấy liên hệ" });
+exports.create = async (req, res, next) => {
+    if (!req.body?.name) {
+        return next(new ApiError(400, "Name cannot be empty"));
     }
-    res.send(contact);
+
+    try {
+        const contactService = new ContactService(MongoDB.client);
+        const document = await contactService.create(req.body);
+        return res.status(201).send(document);
+    } catch (error) {
+        return next(new ApiError(500, "An error occurred while creating the contact"));
+    }
+};
+
+// Truy vấn tất cả liên hệ
+exports.findAll = async (req, res, next) => {
+    try {
+        const contactService = new ContactService(MongoDB.client);
+        const { name } = req.query;
+        const documents = name 
+            ? await contactService.findByName(name) 
+            : await contactService.find({});
+        return res.send(documents);
+    } catch (error) {
+        return next(new ApiError(500, "An error occurred while retrieving contacts"));
+    }
+};
+
+// Tìm một liên hệ theo ID
+exports.findOne = async (req, res, next) => {
+    if (!ObjectId.isValid(req.params.id)) {
+        return next(new ApiError(400, "Invalid contact ID"));
+    }
+
+    try {
+        const contactService = new ContactService(MongoDB.client);
+        const document = await contactService.findById(req.params.id);
+
+        if (!document) {
+            return next(new ApiError(404, "Contact not found"));
+        }
+        return res.send(document);
+    } catch (error) {
+        return next(new ApiError(500, `Error retrieving contact with id=${req.params.id}`));
+    }
 };
 
 // Cập nhật thông tin liên hệ
-exports.update = (req, res) => {
-    const id = parseInt(req.params.id);
-    const contactIndex = contacts.findIndex(c => c.id === id);
-    if (contactIndex === -1) {
-        return res.status(404).send({ message: "Không tìm thấy liên hệ" });
+exports.update = async (req, res, next) => {
+    if (!ObjectId.isValid(req.params.id)) {
+        return next(new ApiError(400, "Invalid contact ID"));
     }
-    contacts[contactIndex] = { ...contacts[contactIndex], ...req.body };
-    res.send(contacts[contactIndex]);
+    if (Object.keys(req.body).length === 0) {
+        return next(new ApiError(400, "Data to update cannot be empty"));
+    }
+
+    try {
+        const contactService = new ContactService(MongoDB.client);
+        const document = await contactService.update(req.params.id, req.body);
+
+        if (!document) {
+            return next(new ApiError(404, "Contact not found"));
+        }
+
+        return res.send({ message: "Contact was updated successfully" });
+    } catch (error) {
+        return next(new ApiError(500, `Error updating contact with id=${req.params.id}`));
+    }
 };
 
 // Xóa một liên hệ
-exports.delete = (req, res) => {
-    const id = parseInt(req.params.id);
-    contacts = contacts.filter(c => c.id !== id);
-    res.send({ message: "Đã xóa liên hệ" });
+exports.delete = async (req, res, next) => {
+    try {
+        const contactService = new ContactService(MongoDB.client);
+        const deleted = await contactService.delete(req.params.id);
+
+        if (!deleted) {
+            return res.status(200).send({ message: "Contact already deleted or not found" });
+        }
+
+        return res.status(200).send({ message: "Contact was deleted successfully" });
+    } catch (error) {
+        return next(new ApiError(500, `Could not delete contact with id=${req.params.id}`));
+    }
 };
+
+
+
+
 
 // Xóa tất cả liên hệ
-exports.deleteAll = (req, res) => {
-    contacts = [];
-    res.send({ message: "Đã xóa tất cả liên hệ" });
+exports.deleteAll = async (_req, res, next) => {
+    try {
+        const contactService = new ContactService(MongoDB.client);
+        const deletedCount = await contactService.deleteAll();
+
+        return res.send({
+            message: `${deletedCount} contacts were deleted successfully`,
+        });
+    } catch (error) {
+        return next(new ApiError(500, "An error occurred while removing all contacts"));
+    }
 };
 
+
 // Lấy danh sách liên hệ yêu thích
-exports.findAllFavorite = (req, res) => {
-    const favoriteContacts = contacts.filter(contact => contact.favorite);
-    res.send(favoriteContacts);
+exports.findAllFavorite = async (_req, res, next) => {
+    try {
+        const contactService = new ContactService(MongoDB.client);
+        const documents = await contactService.findFavorite();
+        return res.send(documents);
+    } catch (error) {
+        return next(new ApiError(500, "An error occurred while retrieving favorite contacts"));
+    }
 };
